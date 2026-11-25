@@ -22,29 +22,42 @@ jobs:
     env:
       BUILD_JOBS: ${{ inputs.jobs }}
       VOID_IMAGE: ghcr.io/void-linux/void-glibc-full@sha256:aebab63186c47502160473359efe69583fa3ed7283f19eb4a902b2f2c221a6c9
+      BUILD_IMAGE: void-plasma-mobile-builder:${{ github.run_id }}-${{ github.run_attempt }}
+
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
 
-      - name: Build native XBPS packages and collect the offline repository
+      - name: Prepare the Void ARM64 builder with Bash
         shell: bash
         run: |
           test "$(uname -m)" = aarch64
-          mkdir -p output
           docker pull --platform linux/arm64 "$VOID_IMAGE"
+          docker build --platform linux/arm64 \
+            --build-arg "BASE_IMAGE=$VOID_IMAGE" \
+            --tag "$BUILD_IMAGE" - <<'DOCKERFILE'
+          ARG BASE_IMAGE
+          FROM ${BASE_IMAGE}
+          RUN ["/bin/sh", "-ec", "xbps-install -Sy xbps && xbps-install -Sy bash && /bin/bash --version"]
+          DOCKERFILE
+
+      - name: Build native XBPS packages and collect the offline repository
+        shell: bash
+        run: |
+          mkdir -p output
           docker run --rm --platform linux/arm64 --privileged \
             -e BUILD_JOBS \
             --mount "type=bind,src=$PWD,dst=/kit,readonly" \
             --mount "type=bind,src=$PWD/output,dst=/output" \
-            "$VOID_IMAGE" /bin/bash /kit/scripts/build.sh
+            "$BUILD_IMAGE" /bin/bash /kit/scripts/build.sh
 
       - name: Verify dependency resolution without a network
         shell: bash
         run: |
           docker run --rm --platform linux/arm64 --network none \
             --mount "type=bind,src=$PWD/output,dst=/output,readonly" \
-            "$VOID_IMAGE" /bin/bash /output/void-plasma-mobile-aarch64/install.sh --verify-empty
+            "$BUILD_IMAGE" /bin/bash /output/void-plasma-mobile-aarch64/install.sh --verify-empty
 
       - name: Archive the verified bundle
         shell: bash
