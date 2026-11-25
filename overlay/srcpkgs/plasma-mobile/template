@@ -20,7 +20,8 @@ makedepends="qt6-base-private-devel qt6-declarative-private-devel
  libplasma-devel plasma-activities-devel libkf6screen-devel kpipewire-devel
  plasma-workspace-devel kwin-devel layer-shell-qt-devel plasma-wayland-protocols
  qcoro-qt6-devel kirigami-addons-devel libepoxy-devel libxcb-devel
- wayland-devel eudev-libudev-devel kde-plasma-base Vulkan-Headers"
+ wayland-devel eudev-libudev-devel kde-plasma-base Vulkan-Headers
+ pipewire-devel ModemManager-devel"
 depends="plasma-workspace>=${version} kwin>=${version} plasma-nano>=${version}
  plasma-keyboard>=${version} plasma-nm plasma-pa powerdevil milou bluedevil
  kscreen systemsettings kde-cli-tools plasma-integration breeze-qt6
@@ -35,6 +36,17 @@ license="GPL-3.0-or-later"
 homepage="https://plasma-mobile.org/"
 distfiles="https://download.kde.org/stable/plasma/${version}/${pkgname}-${version}.tar.xz"
 checksum=d66ef609aaefef6bbe8d6b4b58a98d7322fd2d29b0eabd3539e3066ab770b60c
+
+pre_configure() {
+	cat > void-native-include-paths.cmake <<'EOF'
+foreach(target IN ITEMS K::KPipeWire KF6::ModemManagerQt)
+    get_target_property(include_dirs "${target}" INTERFACE_INCLUDE_DIRECTORIES)
+    list(TRANSFORM include_dirs REPLACE "^/usr/aarch64-linux-gnu/usr/include/" "/usr/include/")
+    set_property(TARGET "${target}" PROPERTY INTERFACE_INCLUDE_DIRECTORIES "${include_dirs}")
+endforeach()
+EOF
+	sed -i '/^find_package(KPipeWire /r void-native-include-paths.cmake' CMakeLists.txt
+}
 
 post_install() {
 	vlicense LICENSES/LicenseRef-KDE-Accepted-GPL.txt
