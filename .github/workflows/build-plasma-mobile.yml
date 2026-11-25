@@ -1,0 +1,65 @@
+name: Build Void ARM64 Plasma Mobile
+
+on:
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: Native ARM64 runner label
+        default: ubuntu-24.04-arm
+        type: string
+      jobs:
+        description: Parallel compile jobs (0 uses the runner's CPU count)
+        default: '0'
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 120
+    env:
+      BUILD_JOBS: ${{ inputs.jobs }}
+      VOID_IMAGE: ghcr.io/void-linux/void-glibc-full@sha256:aebab63186c47502160473359efe69583fa3ed7283f19eb4a902b2f2c221a6c9
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Build native XBPS packages and collect the offline repository
+        shell: bash
+        run: |
+          test "$(uname -m)" = aarch64
+          mkdir -p output
+          docker pull --platform linux/arm64 "$VOID_IMAGE"
+          docker run --rm --platform linux/arm64 --privileged \
+            -e BUILD_JOBS \
+            --mount "type=bind,src=$PWD,dst=/kit,readonly" \
+            --mount "type=bind,src=$PWD/output,dst=/output" \
+            "$VOID_IMAGE" /bin/bash /kit/scripts/build.sh
+
+      - name: Verify dependency resolution without a network
+        shell: bash
+        run: |
+          docker run --rm --platform linux/arm64 --network none \
+            --mount "type=bind,src=$PWD/output,dst=/output,readonly" \
+            "$VOID_IMAGE" /bin/bash /output/void-plasma-mobile-aarch64/install.sh --verify-empty
+
+      - name: Archive the verified bundle
+        shell: bash
+        run: |
+          bundle=void-plasma-mobile-aarch64
+          tar -C output -cf "output/$bundle.tar" "$bundle"
+          (cd output && sha256sum "$bundle.tar" > "$bundle.tar.sha256")
+
+      - name: Upload the offline package bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: void-plasma-mobile-aarch64-offline
+          path: |
+            output/void-plasma-mobile-aarch64.tar
+            output/void-plasma-mobile-aarch64.tar.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
